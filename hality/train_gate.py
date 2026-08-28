@@ -1,23 +1,3 @@
-"""Modelo A -- gate de lingua. Treina e salva.
-
-HISTORICO DE FALHAS (importa, porque explica o desenho):
-
-  v1  positivos = recorte justo da lingua; negativos = quadrados pequenos de fora da
-      mascara + fotos COCO inteiras em 4:3.  AUC 1.0000.
-      Prever o rotulo SO por largura/altura: AUC 0.9991. Lixo.
-
-  v2  tentei igualar o lado do negativo ao do positivo. Impossivel por fisica: em
-      close-up nao existe regiao nao-lingua do tamanho da lingua. 0 negativos.
-
-  v3  randomizei a resolucao efetiva. Confundidor caiu, mas o recall nas NOSSAS fotos
-      ficou em 85% contra 99.9% nas chinesas -- o modelo aprendeu o dominio de estudio.
-
-CAUSA RAIZ: eu classificava RECORTES, e o recorte de cada classe tinha geometria
-propria. A pergunta de producao nao e "este pedaco e lingua", e "esta FOTO tem uma
-lingua". Aqui a unidade passa a ser a imagem inteira, e o tratamento e identico nas
-duas classes -- nenhuma etapa olha o rotulo antes de decidir como cortar ou
-redimensionar. Assim o confundidor nao pode ser construido por engano.
-"""
 from __future__ import annotations
 
 import glob
@@ -45,12 +25,6 @@ STD = np.array([.229, .224, .225], np.float32)
 
 
 def preparar(caminho: str, rng) -> torch.Tensor | None:
-    """Tratamento IDENTICO para toda imagem, sem olhar o rotulo.
-
-    Recorte quadrado aleatorio de 50-100% do lado menor, depois resolucao efetiva
-    sorteada. Nenhuma dessas escolhas depende da classe, entao geometria e nitidez nao
-    podem carregar informacao sobre o rotulo.
-    """
     try:
         a = np.asarray(Image.open(caminho).convert("RGB"))
     except Exception:
@@ -69,7 +43,6 @@ def preparar(caminho: str, rng) -> torch.Tensor | None:
 
 
 def coletar() -> list[tuple[str, int, str, str]]:
-    """(caminho, rotulo, grupo, fonte). Fotos INTEIRAS, sem recorte por mascara."""
     itens = []
     for f in sorted(glob.glob(os.path.join(ROOT, "Hality-Project-main", "data",
                                            "Classificacao", "*"))):
@@ -92,7 +65,6 @@ def main() -> None:
           % ((src == "propria").sum(), (src == "chinesa").sum(), (src == "coco").sum()),
           flush=True)
 
-    # --- confundidor nas dimensoes nativas ---
     dims = []
     for f, *_ in itens:
         try:
@@ -112,7 +84,6 @@ def main() -> None:
     print("   e se sobrevive ao tratamento identico abaixo, medido na imagem final.)",
           flush=True)
 
-    # --- embeddings ---
     mdl = AutoModel.from_pretrained("facebook/dinov2-small").eval()
     torch.set_num_threads(os.cpu_count() or 4)
     E, manter, nitidez = [], [], []
@@ -144,15 +115,12 @@ def main() -> None:
     nitidez = np.array(nitidez).reshape(-1, 1)
     print("embeddings: %s" % (E.shape,), flush=True)
 
-    # confundidor de ARTEFATO na imagem final: so nitidez (resolucao), nunca brilho/cor,
-    # que sao conteudo legitimo -- lingua e rosa e clara, e isso e sinal, nao vies
     pr = cross_val_predict(HistGradientBoostingClassifier(max_iter=200, random_state=0),
                            nitidez, y, cv=StratifiedKFold(5, shuffle=True, random_state=0),
                            method="predict_proba")[:, 1]
     print("confundidor por NITIDEZ da imagem final: AUC=%.4f  (alvo: perto de 0.5)"
           % roc_auc_score(y, pr), flush=True)
 
-    # --- gate ---
     clf = make_pipeline(StandardScaler(),
                         LogisticRegression(C=0.01, max_iter=4000, class_weight="balanced"))
     p = cross_val_predict(clf, E, y, cv=StratifiedGroupKFold(5, shuffle=True, random_state=0),
@@ -161,9 +129,8 @@ def main() -> None:
     print("AUC = %.4f" % roc_auc_score(y, p))
     print(confusion_matrix(y, (p > 0.5).astype(int)), " linhas: 0=nao-lingua 1=lingua")
 
-    # limiar calibrado no dominio que importa: as NOSSAS fotos
     proprias = p[(src == "propria")]
-    limiar = float(np.quantile(proprias, 0.02))     # 98% de recall nas proprias
+    limiar = float(np.quantile(proprias, 0.02))
     print("\nlimiar para 98%% de recall nas fotos PROPRIAS: %.4f" % limiar)
     for s in ("propria", "chinesa"):
         k = src == s
