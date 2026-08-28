@@ -1,15 +1,3 @@
-"""Treina a U-Net de segmentacao nas mascaras do proprio projeto.
-
-Treina SO na particao de treino. Usar imagens de teste aqui vazaria: o segmentador
-produziria mascaras melhores justamente nas fotos onde o classificador sera medido.
-
-As mascaras de referencia vieram da API da Roboflow. Isto e destilacao: herdamos o teto
-de qualidade dela, mas eliminamos a dependencia de rede, o custo por chamada e o envio
-de imagem clinica a terceiro.
-
-Augmentation: apenas geometrica. Medicao em docs/ARQUITETURA.md secao 5.2 -- jitter de
-cor degrada monotonicamente, porque a cor e o sinal.
-"""
 from __future__ import annotations
 
 import os
@@ -37,10 +25,10 @@ def _tensores(amostras, size=SIZE):
 
 
 def _augment(x: torch.Tensor, y: torch.Tensor, rng) -> tuple[torch.Tensor, torch.Tensor]:
-    if rng.random() < 0.5:                       # espelhamento horizontal
+    if rng.random() < 0.5:
         x, y = torch.flip(x, [3]), torch.flip(y, [3])
     k = int(rng.integers(0, 4))
-    if k:                                        # rotacao em multiplos de 90
+    if k:
         x, y = torch.rot90(x, k, (2, 3)), torch.rot90(y, k, (2, 3))
     return x, y
 
