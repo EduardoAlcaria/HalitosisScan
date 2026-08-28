@@ -1,15 +1,3 @@
-"""Segmentador de lingua: U-Net pequena, treinada nas mascaras do proprio projeto.
-
-Substitui a chamada a API da Roboflow do pipeline anterior, que implicava latencia de
-rede por foto, custo por requisicao, chave exposta em texto claro e envio de imagem
-clinica a terceiro.
-
-U-Net de ~500k parametros a 192x192. A tarefa e facil -- um blob central grande e de
-alto contraste -- entao capacidade nao e o gargalo, e o modelo cabe em CPU.
-
-ponytail: U-Net minima em vez de fine-tune de deeplabv3. 310 pares de treino nao
-sustentam um backbone grande, e CPU torna o fine-tune caro. Trocar se o IoU nao bastar.
-"""
 from __future__ import annotations
 
 import torch
@@ -47,11 +35,10 @@ class UNet(nn.Module):
         y = self.c3(torch.cat([self.u3(b), s3], 1))
         y = self.c2(torch.cat([self.u2(y), s2], 1))
         y = self.c1(torch.cat([self.u1(y), s1], 1))
-        return self.out(y)          # logits [N,1,H,W]
+        return self.out(y)
 
 
 def dice_bce(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """BCE sozinha ignora o objeto quando o fundo domina; Dice equilibra."""
     bce = F.binary_cross_entropy_with_logits(logits, target)
     p = torch.sigmoid(logits)
     inter = (p * target).sum((1, 2, 3))
