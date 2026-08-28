@@ -1,13 +1,3 @@
-"""Reconciliacao: constroi a tabela mestra e a divisao por paciente.
-
-As pastas soltas do repositorio (`data/Imagens lingua/`, `data/Classificacao/`,
-`data/classificacao_rotulados/`, os tres `dataset*` do drive) sao entrada bruta e nao
-sao consumidas diretamente pelo treino. Tudo passa por aqui.
-
-Divisao por PACIENTE, nunca por foto: um paciente com mais de uma imagem, ou uma foto
-que gera varios recortes, precisa ficar inteiro de um lado so. Caso contrario o teste
-mede memorizacao.
-"""
 from __future__ import annotations
 
 import os
@@ -24,7 +14,7 @@ CSV = os.path.join(LEGADO, "data", "TabelaHality_Clean.csv")
 FOTOS = os.path.join(LEGADO, "data", "Classificacao")
 MASCARAS = os.path.join(LEGADO, "recortadas", "recortadas")
 
-MIN_AREA_MASCARA = 0.15   # abaixo disso a segmentacao falhou por sub-segmentacao
+MIN_AREA_MASCARA = 0.15
 
 
 @dataclass
@@ -32,8 +22,8 @@ class Amostra:
     pid: str
     foto: str
     mascara: str
-    nota: int          # 1, 2 ou 3, como veio da clinica
-    alvo: int          # 1 se nota == 3, senao 0
+    nota: int
+    alvo: int
     area: float
 
 
@@ -56,18 +46,13 @@ def tabela_mestra(exigir_area: bool = True) -> list[Amostra]:
         except Exception:
             continue
         if exigir_area and area < MIN_AREA_MASCARA:
-            continue          # sub-segmentada: rotulo de mascara nao confiavel
+            continue
         nota = int(notas[pid])
         out.append(Amostra(pid, fotos[pid], m, nota, int(nota == 3), float(area)))
     return out
 
 
 def dividir(amostras: list[Amostra], seed: int = 42) -> dict[str, list[Amostra]]:
-    """Estratificada pelo alvo binario, agrupada por paciente, 70/15/15.
-
-    Hoje cada paciente tem uma foto, entao agrupar nao muda nada -- mas a regra fica
-    escrita para quando chegar um segundo lote com varias fotos por pessoa.
-    """
     rng = np.random.default_rng(seed)
     part: dict[str, list[Amostra]] = {"treino": [], "val": [], "teste": []}
     for alvo in (0, 1):
@@ -81,7 +66,6 @@ def dividir(amostras: list[Amostra], seed: int = 42) -> dict[str, list[Amostra]]
 
 
 def carregar(a: Amostra, size: int) -> tuple[np.ndarray, np.ndarray]:
-    """Devolve (rgb uint8 [size,size,3], mask bool [size,size])."""
     im = Image.open(a.foto).convert("RGB")
     mk = Image.open(a.mascara).convert("L")
     if mk.size != im.size:
@@ -102,11 +86,9 @@ def demo() -> None:
     print("particoes:", n, "total", sum(n.values()))
     assert sum(n.values()) == len(am)
 
-    # nenhum paciente em duas particoes
     ids = [{a.pid for a in v} for v in p.values()]
     assert not (ids[0] & ids[1]) and not (ids[0] & ids[2]) and not (ids[1] & ids[2])
 
-    # estratificacao preservada dentro de uma folga razoavel
     base = np.mean([a.alvo for a in am])
     for k, v in p.items():
         prop = np.mean([a.alvo for a in v])
