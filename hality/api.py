@@ -1,13 +1,3 @@
-"""API HTTP do Hality.
-
-Subir:
-    .venv312/Scripts/python.exe -m uvicorn hality.api:app --port 8000
-
-Usar:
-    curl -F "foto=@caminho/da/foto.jpg" http://127.0.0.1:8000/analisar
-
-Docs interativas: http://127.0.0.1:8000/docs
-"""
 from __future__ import annotations
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
@@ -15,7 +5,7 @@ from fastapi.responses import JSONResponse
 
 from .pipeline import Hality
 
-TAMANHO_MAX = 20 * 1024 * 1024      # 20 MB
+TAMANHO_MAX = 20 * 1024 * 1024
 
 app = FastAPI(
     title="Hality",
@@ -28,7 +18,6 @@ _modelo: Hality | None = None
 
 
 def modelo() -> Hality:
-    """Carregado sob demanda; artefato ausente falha aqui, nao no import."""
     global _modelo
     if _modelo is None:
         _modelo = Hality()
@@ -69,5 +58,4 @@ async def analisar(foto: UploadFile = File(..., description="Foto da lingua")) -
     corpo = r.dict()
     corpo["arquivo"] = foto.filename
     corpo["aviso"] = "Triagem, nao diagnostico. Procure um dentista para avaliacao."
-    # rejeicao e resposta bem-sucedida do servico, nao erro HTTP
     return JSONResponse(corpo, status_code=200)
