@@ -1,16 +1,3 @@
-"""Treina o Modelo B e avalia UMA VEZ no conjunto de teste trancado.
-
-Decisoes que este arquivo encarna, todas documentadas em docs/ARQUITETURA.md:
-
-- Alvo BINARIO (`nota == 3` contra o resto). Tres classes colapsam: a classe 1 tem 22
-  amostras e o modelo acerta 4.
-- Somente IMAGEM. A anamnese saiu: sem Q6 contribui 0.002 de AUC, e Q6 nao pode ser
-  auditada porque os enunciados do questionario nao estao disponiveis.
-- Features extraidas das mascaras PREVISTAS pelo segmentador, nao das de referencia.
-  Producao usa mascara prevista; treinar em mascara perfeita seria descasamento.
-- Limiar e faixa de abstencao calibrados na VALIDACAO. O teste e aberto uma vez.
-- Metrica sempre reportada junto da cobertura.
-"""
 from __future__ import annotations
 
 import json
@@ -26,6 +13,7 @@ from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, confusion_m
 
 from .data import tabela_mestra, dividir, Amostra
 from .features import FEATURE_NAMES, extract
+from .pipeline import AREA_PLAUSIVEL_MIN, Hality
 from .segmenter import SIZE as SEG_SIZE, UNet
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -33,6 +21,14 @@ SEG = os.path.join(ROOT, "models", "segmentador.pt")
 SAIDA = os.path.join(ROOT, "models", "classificador.pkl")
 
 FEAT_SIZE = 128
+
+
+AVISO_TESTE = """
+ATENCAO: o conjunto de teste ja foi aberto uma vez, antes da cascata de resgate por
+realce de contraste ser adicionada ao segment(). O numero abaixo NAO e mais um holdout
+limpo -- a mudanca no pipeline foi feita com conhecimento do teste. Para uma estimativa
+sem essa marca, e preciso um conjunto novo ou uma reparticao com semente diferente.
+"""
 
 
 def carregar_segmentador() -> UNet:
@@ -44,15 +40,22 @@ def carregar_segmentador() -> UNet:
 
 
 @torch.no_grad()
-def prever_mascara(modelo: UNet, rgb_full: np.ndarray) -> np.ndarray:
-    """rgb uint8 [H,W,3] -> mascara bool no tamanho de FEAT_SIZE."""
+def _uma(modelo: UNet, rgb_full: np.ndarray) -> np.ndarray:
     x = np.asarray(Image.fromarray(rgb_full).resize((SEG_SIZE, SEG_SIZE), Image.BICUBIC),
                    np.float32) / 255.0
-    logit = modelo(torch.from_numpy(x.transpose(2, 0, 1))[None])
-    prob = torch.sigmoid(logit)[0, 0].numpy()
+    prob = torch.sigmoid(modelo(torch.from_numpy(x.transpose(2, 0, 1))[None]))[0, 0].numpy()
     m = Image.fromarray((prob > 0.5).astype(np.uint8) * 255).resize(
         (FEAT_SIZE, FEAT_SIZE), Image.NEAREST)
     return np.asarray(m) > 127
+
+
+def prever_mascara(modelo: UNet, rgb_full: np.ndarray) -> np.ndarray:
+    m = _uma(modelo, rgb_full)
+    if m.mean() < AREA_PLAUSIVEL_MIN:
+        resgate = _uma(modelo, Hality._realce(rgb_full))
+        if resgate.mean() > m.mean():
+            return resgate
+    return m
 
 
 def _matriz(amostras: list[Amostra], seg: UNet):
@@ -66,7 +69,7 @@ def _matriz(amostras: list[Amostra], seg: UNet):
             y.append(a.alvo)
             ok.append(a.pid)
         except ValueError:
-            pass          # mascara prevista inutilizavel: rejeitada, conta na cobertura
+            pass
     return np.array(X), np.array(y), ok
 
 
@@ -93,26 +96,22 @@ def main() -> None:
     pva = modelo.predict_proba(Xva)[:, 1]
     print(f"\nvalidacao: AUC={roc_auc_score(yva, pva):.3f}", flush=True)
 
-    # ponto de operacao: menor limiar com sensibilidade >= 0.85 (triagem privilegia
-    # sensibilidade -- deixar de sinalizar e pior que sinalizar um caso que o dentista
-    # descartara)
     fpr, tpr, ths = roc_curve(yva, pva)
     viaveis = [(t, s, 1 - f) for t, s, f in zip(ths, tpr, fpr) if s >= 0.85]
     limiar, sens_va, esp_va = max(viaveis, key=lambda r: r[2])
     print(f"limiar escolhido={limiar:.3f}  sens_val={sens_va:.3f} espec_val={esp_va:.3f}",
           flush=True)
 
-    # faixa de abstencao: 20% centrais da distribuicao de validacao
     lo, hi = np.percentile(pva, [40, 60])
     print(f"faixa de abstencao=[{lo:.3f}, {hi:.3f}]", flush=True)
 
-    # ---- teste trancado, aberto uma unica vez ----
     pte = modelo.predict_proba(Xte)[:, 1]
     pred = (pte >= limiar).astype(int)
     auc = roc_auc_score(yte, pte)
     print("\n" + "=" * 58, flush=True)
-    print("TESTE TRANCADO (primeira e unica abertura)", flush=True)
+    print("CONJUNTO DE TESTE", flush=True)
     print("=" * 58, flush=True)
+    print(AVISO_TESTE, flush=True)
     print(f"n={len(yte)}  prevalencia={yte.mean():.3f}")
     print(f"AUC      = {auc:.3f}")
     print(f"F1 macro = {f1_score(yte, pred, average='macro'):.3f}")
