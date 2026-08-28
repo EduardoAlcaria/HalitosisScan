@@ -1,25 +1,10 @@
-"""Features do Modelo B.
-
-Todas calculadas apenas sobre os pixels dentro da mascara da lingua.
-
-Os NOMES e a ORDEM fazem parte do contrato: o modelo treinado depende deles.
-Alterar a extracao invalida o artefato salvo -- por isso FEATURE_NAMES e gravado
-junto com o modelo e conferido no carregamento.
-
-Medicao que orienta o desenho (docs/ARQUITETURA.md secao 3): a feature dominante e
-HSV_S_p10, o percentil 10 da saturacao, ou seja quao palida e a porcao mais palida da
-lingua. Isso e a camada de saburra. Uma versao limiarizada da mesma ideia
-("fracao de pixels com saturacao < 60") foi testada e vale AUC 0.553 sozinha, contra
-0.799 do resto -- binarizar descarta a informacao que o percentil preserva.
-Regra: medidas continuas por percentil, nunca contagens limiarizadas.
-"""
 from __future__ import annotations
 
 import numpy as np
 from PIL import Image
 
-SIZE = 128          # resolucao de trabalho da extracao
-MIN_MASK_PX = 200   # abaixo disso a mascara nao sustenta estatistica
+SIZE = 128
+MIN_MASK_PX = 200
 
 _CH = {"RGB": ("R", "G", "B"), "HSV": ("H", "S", "V")}
 _STATS = ("media", "desvio", "p10", "p90")
@@ -37,7 +22,6 @@ FEATURE_NAMES = _names()
 
 
 def extract(rgb: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    """rgb uint8 [H,W,3], mask bool [H,W] -> vetor float64 [len(FEATURE_NAMES)]."""
     if rgb.shape[:2] != (SIZE, SIZE):
         rgb = np.asarray(Image.fromarray(rgb).convert("RGB").resize((SIZE, SIZE), Image.BICUBIC))
     if mask.shape != (SIZE, SIZE):
@@ -61,7 +45,6 @@ def extract(rgb: np.ndarray, mask: np.ndarray) -> np.ndarray:
     grad = np.abs(np.diff(rgb.mean(2), axis=0))
     f += [float(grad.mean()), float(grad.std())]
 
-    # ponta / meio / base: a saburra concentra no fundo do dorso
     for lo, hi in ((0, SIZE // 3), (SIZE // 3, 2 * SIZE // 3), (2 * SIZE // 3, SIZE)):
         faixa = mask.copy()
         faixa[:lo] = False
@@ -77,7 +60,6 @@ def extract(rgb: np.ndarray, mask: np.ndarray) -> np.ndarray:
 
 
 def demo() -> None:
-    """Auto-teste: roda com `python -m hality.features`."""
     rng = np.random.default_rng(0)
     rgb = rng.integers(0, 256, (200, 300, 3), dtype=np.uint8)
     mask = np.zeros((200, 300), bool)
@@ -87,11 +69,9 @@ def demo() -> None:
     assert v.shape == (len(FEATURE_NAMES),)
     assert np.isfinite(v).all()
 
-    # area_mascara reflete a fracao coberta (~0.233), com folga pela reamostragem
     area = v[FEATURE_NAMES.index("area_mascara")]
     assert 0.18 < area < 0.29, area
 
-    # uma lingua uniformemente palida tem S_p10 menor que uma saturada
     pal = np.full((128, 128, 3), 230, np.uint8)
     sat = np.zeros((128, 128, 3), np.uint8)
     sat[..., 0] = 200
@@ -99,14 +79,12 @@ def demo() -> None:
     i = FEATURE_NAMES.index("HSV_S_p10")
     assert extract(pal, m)[i] < extract(sat, m)[i]
 
-    # mascara pequena demais precisa falhar, nao devolver lixo
     try:
         extract(rgb, np.zeros((200, 300), bool))
         raise AssertionError("deveria ter levantado ValueError")
     except ValueError:
         pass
 
-    # estabilidade: mesma entrada, mesma saida
     assert np.allclose(extract(rgb, mask), v)
 
     print(f"ok - {len(FEATURE_NAMES)} features")
