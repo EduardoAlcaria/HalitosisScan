@@ -1,0 +1,23 @@
+# dados clinicos: fotos de pacientes e anamnese. nunca versionar.
+Hality-Project-main/
+drive-download-*/
+*.zip
+data/
+recortadas/
+
+# datasets externos baixados
+data_ext/
+
+# artefatos treinados: binarios grandes, reproduziveis pelos scripts de treino
+models/
+
+# ambiente
+.venv312/
+.venv/
+__pycache__/
+*.py[cod]
+
+# saidas de trabalho
+fotos_teste.txt
+t_*.jpg
+.remember/
