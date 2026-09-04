@@ -13,14 +13,15 @@ from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, confusion_m
 
 from .data import tabela_mestra, dividir, Amostra
 from .features import FEATURE_NAMES, extract
-from .pipeline import AREA_PLAUSIVEL_MIN, Hality
-from .segmenter import SIZE as SEG_SIZE, UNet
+from .segmentacao import Segmentador
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SEG = os.path.join(ROOT, "models", "segmentador.pt")
 SAIDA = os.path.join(ROOT, "models", "classificador.pkl")
 
 FEAT_SIZE = 128
+
+SENS_MINIMA = 0.80
 
 
 AVISO_TESTE = """
@@ -31,38 +32,11 @@ sem essa marca, e preciso um conjunto novo ou uma reparticao com semente diferen
 """
 
 
-def carregar_segmentador() -> UNet:
-    ck = torch.load(SEG, map_location="cpu", weights_only=True)
-    m = UNet(w=ck["w"])
-    m.load_state_dict(ck["state_dict"])
-    m.eval()
-    return m
-
-
-@torch.no_grad()
-def _uma(modelo: UNet, rgb_full: np.ndarray) -> np.ndarray:
-    x = np.asarray(Image.fromarray(rgb_full).resize((SEG_SIZE, SEG_SIZE), Image.BICUBIC),
-                   np.float32) / 255.0
-    prob = torch.sigmoid(modelo(torch.from_numpy(x.transpose(2, 0, 1))[None]))[0, 0].numpy()
-    m = Image.fromarray((prob > 0.5).astype(np.uint8) * 255).resize(
-        (FEAT_SIZE, FEAT_SIZE), Image.NEAREST)
-    return np.asarray(m) > 127
-
-
-def prever_mascara(modelo: UNet, rgb_full: np.ndarray) -> np.ndarray:
-    m = _uma(modelo, rgb_full)
-    if m.mean() < AREA_PLAUSIVEL_MIN:
-        resgate = _uma(modelo, Hality._realce(rgb_full))
-        if resgate.mean() > m.mean():
-            return resgate
-    return m
-
-
-def _matriz(amostras: list[Amostra], seg: UNet):
+def _matriz(amostras: list[Amostra], seg: Segmentador):
     X, y, ok = [], [], []
     for a in amostras:
         rgb_full = np.asarray(Image.open(a.foto).convert("RGB"))
-        mask = prever_mascara(seg, rgb_full)
+        mask = seg(rgb_full)
         rgb = np.asarray(Image.fromarray(rgb_full).resize((FEAT_SIZE, FEAT_SIZE), Image.BICUBIC))
         try:
             X.append(extract(rgb, mask))
@@ -74,7 +48,7 @@ def _matriz(amostras: list[Amostra], seg: UNet):
 
 
 def main() -> None:
-    seg = carregar_segmentador()
+    seg = Segmentador()
     part = dividir(tabela_mestra())
 
     dados = {}
@@ -97,8 +71,10 @@ def main() -> None:
     print(f"\nvalidacao: AUC={roc_auc_score(yva, pva):.3f}", flush=True)
 
     fpr, tpr, ths = roc_curve(yva, pva)
-    viaveis = [(t, s, 1 - f) for t, s, f in zip(ths, tpr, fpr) if s >= 0.85]
-    limiar, sens_va, esp_va = max(viaveis, key=lambda r: r[2])
+    viaveis = [(t, sn, 1 - f) for t, sn, f in zip(ths, tpr, fpr) if sn >= SENS_MINIMA]
+    if not viaveis:
+        viaveis = [(t, sn, 1 - f) for t, sn, f in zip(ths, tpr, fpr)]
+    limiar, sens_va, esp_va = max(viaveis, key=lambda r: r[1] + r[2] - 1)
     print(f"limiar escolhido={limiar:.3f}  sens_val={sens_va:.3f} espec_val={esp_va:.3f}",
           flush=True)
 
@@ -135,8 +111,7 @@ def main() -> None:
     with open(os.path.join(ROOT, "models", "metricas.json"), "w", encoding="utf-8") as f:
         json.dump({"auc_teste": float(auc), "n_teste": int(len(yte)),
                    "limiar": float(limiar), "abstencao": [float(lo), float(hi)],
-                   "iou_segmentador_val": float(
-                       torch.load(SEG, map_location="cpu", weights_only=True)["iou_val"])},
+                   "iou_segmentador_val": float(seg.iou_val)},
                   f, indent=2)
 
 
