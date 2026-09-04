@@ -10,7 +10,7 @@ import torch
 from PIL import Image, ImageOps
 
 from .features import extract
-from .segmenter import SIZE as SEG_SIZE, UNet
+from .segmentacao import AREA_PLAUSIVEL_MIN, Segmentador
 
 try:
     import pillow_heif
@@ -27,7 +27,6 @@ NITIDEZ_MIN = 12.0
 CLARO_MAX = 0.35
 ESCURO_MAX = 0.55
 AREA_MIN = 0.12
-AREA_PLAUSIVEL_MIN = 0.20
 AREA_FRAGMENTO_MIN = 0.55
 
 N_PASSAGENS = 5
@@ -51,12 +50,8 @@ class Resultado:
 
 class Hality:
     def __init__(self) -> None:
-        ck = torch.load(os.path.join(MODELOS, "segmentador.pt"),
-                        map_location="cpu", weights_only=True)
-        self.seg = UNet(w=ck["w"])
-        self.seg.load_state_dict(ck["state_dict"])
-        self.seg.eval()
-        self.iou_seg = ck["iou_val"]
+        self.seg = Segmentador()
+        self.iou_seg = self.seg.iou_val
 
         with open(os.path.join(MODELOS, "classificador.pkl"), "rb") as f:
             art = pickle.load(f)
@@ -126,31 +121,8 @@ class Hality:
             return False, "Foto tremida ou fora de foco. Refaca segurando firme.", nitidez
         return True, "", nitidez
 
-    @staticmethod
-    def _realce(rgb: np.ndarray, lo: float = 2, hi: float = 98) -> np.ndarray:
-        o = rgb.astype(np.float32).copy()
-        for c in range(3):
-            a, b = np.percentile(o[..., c], [lo, hi])
-            if b > a:
-                o[..., c] = np.clip((o[..., c] - a) * 255 / (b - a), 0, 255)
-        return o.astype(np.uint8)
-
-    @torch.no_grad()
-    def _segment_uma(self, rgb: np.ndarray) -> np.ndarray:
-        x = np.asarray(Image.fromarray(rgb).resize((SEG_SIZE, SEG_SIZE), Image.BICUBIC),
-                       np.float32) / 255.0
-        prob = torch.sigmoid(self.seg(torch.from_numpy(x.transpose(2, 0, 1))[None]))
-        m = (prob[0, 0].numpy() > 0.5).astype(np.uint8) * 255
-        return np.asarray(Image.fromarray(m).resize((FEAT_SIZE, FEAT_SIZE),
-                                                    Image.NEAREST)) > 127
-
     def segment(self, rgb: np.ndarray) -> np.ndarray:
-        m = self._segment_uma(rgb)
-        if m.mean() < AREA_PLAUSIVEL_MIN:
-            resgate = self._segment_uma(self._realce(rgb))
-            if resgate.mean() > m.mean():
-                return resgate
-        return m
+        return self.seg(rgb)
 
     @staticmethod
     def mask_sanity(mask: np.ndarray) -> tuple[bool, str]:
