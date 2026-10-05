@@ -185,6 +185,47 @@ Rejeição volta como HTTP 200 — o serviço funcionou e concluiu que não dá 
 Cada módulo tem um auto-teste: `python -m hality.features`, `python -m hality.data`,
 `python -m hality.pipeline`.
 
+## Rodar com Docker
+
+A imagem `hality-ai` já vem com os modelos treinados e o DINOv2 embutidos, e roda sem
+internet. Ela é distribuída como arquivo `.tar`, fora do git, porque os pesos passam do
+limite de 100 MB por arquivo do GitHub e foram treinados com dados de pacientes.
+
+Carregar a imagem a partir do arquivo recebido:
+
+```bash
+docker load -i hality-ai.tar
+```
+
+Subir o serviço na porta 8000:
+
+```bash
+docker run -d --name hality-ai -p 8000:8000 --restart unless-stopped hality-ai:latest
+```
+
+A subida leva alguns segundos, porque os modelos são carregados e aquecidos. Conferir:
+
+```bash
+curl http://127.0.0.1:8000/saude
+curl -F "foto=@lingua.jpg" http://127.0.0.1:8000/analisar
+```
+
+Para gerar o arquivo `.tar` a partir de uma imagem já construída:
+
+```bash
+docker build -t hality-ai:latest .
+docker save hality-ai:latest -o hality-ai.tar
+```
+
+O `docker build` exige os pesos em `models/` (`tonguenet.pt`, `classificador.pkl`,
+`gate.pkl`, `segmentador.pt`).
+
+Parar e remover o serviço:
+
+```bash
+docker rm -f hality-ai
+```
+
 ## Resultados medidos
 
 | Componente | Métrica |
