@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from .pipeline import Hality
@@ -33,6 +34,7 @@ def saude() -> dict:
                                  "e hality.train_classifier.")
     return {
         "status": "ok",
+        "segmentador": m.seg.nome,
         "auc_teste": round(m.auc_teste, 3),
         "iou_segmentador": round(m.iou_seg, 3),
         "limiar": round(m.limiar, 3),
@@ -54,7 +56,7 @@ async def analisar(foto: UploadFile = File(..., description="Foto da lingua")) -
     except FileNotFoundError:
         raise HTTPException(503, "Modelos nao treinados.")
 
-    r = m.analisar(raw)
+    r = await run_in_threadpool(m.analisar, raw)
     corpo = r.dict()
     corpo["arquivo"] = foto.filename
     corpo["aviso"] = "Triagem, nao diagnostico. Procure um dentista para avaliacao."
