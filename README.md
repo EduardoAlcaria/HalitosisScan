@@ -136,13 +136,25 @@ rejeita 5%. Por isso todo número reportado vem acompanhado da cobertura.
 
 ## Como usar
 
+Instalar:
+
+```bash
+py -3.12 -m venv .venv312
+.venv312/Scripts/python.exe -m pip install -r requirements.txt
+```
+
+O segmentador principal é o TongueNet (DeepLabV3-ResNet50, IoU 0,903 contra máscara de
+especialista no BioHit). O peso `tonguenet.pt` (159 MB) não vai para o git: copie-o para
+`models/tonguenet.pt`. Sem ele, o sistema cai para a U-Net própria (`models/segmentador.pt`).
+
 Treinar (uma vez, nesta ordem):
 
 ```bash
-.venv312/Scripts/python.exe -m hality.train_segmenter    # ~10 min
-.venv312/Scripts/python.exe -m hality.train_classifier   # ~2 min
+.venv312/Scripts/python.exe -m hality.train_classifier   # ~3 min, usa o TongueNet
 .venv312/Scripts/python.exe -m hality.train_gate         # ~10 min
 ```
+
+`hality.train_segmenter` só é necessário para regenerar a U-Net de reserva.
 
 Subir a API e analisar uma foto:
 
@@ -150,6 +162,9 @@ Subir a API e analisar uma foto:
 .venv312/Scripts/python.exe -m uvicorn hality.api:app --port 8000
 curl -F "foto=@lingua.jpg" http://127.0.0.1:8000/analisar
 ```
+
+Documentação interativa (Swagger) em `http://127.0.0.1:8000/docs`. `GET /saude` informa
+qual segmentador está carregado.
 
 Resposta:
 
