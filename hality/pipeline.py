@@ -215,6 +215,7 @@ class Hality:
 
         if vencedor == "rejeitado":
             motivo = next(r.motivo for r in passagens if r.veredito == "rejeitado")
+            comum.update(probabilidade=None, dispersao=None)
             return Resultado("rejeitado", motivo, **comum)
         return Resultado(vencedor, self.MOTIVOS[vencedor], **comum)
 
