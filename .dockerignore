@@ -1,0 +1,10 @@
+.venv312/
+.git/
+.remember/
+Hality-Project-main/
+drive-download-*/
+data_ext/
+docs/
+models/sam/
+*.zip
+__pycache__/
